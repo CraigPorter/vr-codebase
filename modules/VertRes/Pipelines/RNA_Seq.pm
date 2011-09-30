@@ -177,7 +177,34 @@ use File::Copy;
 # - mpileup + gff --> expression values.
 # - updatedb - Check how SNPs deals with this for BAM list.
 # - cleanup - Shouldn't be too much.
-our @actions =
+our @actions = 
+(
+    # Dummy function
+    {
+        'name'     => 'dummy',
+        'action'   => \&dummy,
+        'requires' => \&dummy_requires, 
+        'provides' => \&dummy_provides,
+    },
+    # clean up any temp files after RNA-Seq
+    {
+        'name'     => 'cleanup',
+        'action'   => \&cleanup,
+        'requires' => \&cleanup_requires, 
+        'provides' => \&cleanup_provides,
+    },
+    # when getting jobs from a database, update the finished lanes
+    {
+        'name'     => 'update_db',
+        'action'   => \&update_db,
+        'requires' => \&update_db_requires, 
+        'provides' => \&update_db_provides,
+    }
+);
+
+
+
+our @actions_old =
 (
     # Samtools varFilter
     {
@@ -737,6 +764,39 @@ rename('$name.vcf.gz.part','$name.vcf.gz') or Utils::error("rename $name.vcf.gz.
 }
 
 
+# Dummy function
+# Requires file list
+sub dummy_requires
+{
+    my ($self,$dir) = @_;
+    return [$$self{file_list}];
+}
+
+sub dummy_provides {
+    return ['dummy.done'];}
+
+
+sub dummy
+{
+    my ($self,$dir,$lock_file) = @_;
+
+    $self->debug("Dir: $dir\n");
+
+    my $gff = $$self{gff_ref};
+    $self->debug("Gff: $gff\n");
+
+
+    my $bams = $self->read_files($$self{file_list});
+    foreach my $bam (@{$bams})
+    {
+	$self->debug("Bam: $bam\n");
+    }
+
+
+    Utils::CMD("touch $dir/dummy.done",{verbose=>1});
+
+    return $$self{Yes};
+}
 
 #---------- varFilter ---------------------
 
@@ -1415,7 +1475,7 @@ sub cleanup_provides {
     my @provides;
 
     if ($self->{task}{cleanup}){
-        push @provides, '.snps_done';
+        push @provides, 'rna_seq_done';
     }
     else {
         @provides = @{$self->cleanup_requires($lane_path)};
@@ -1438,6 +1498,15 @@ sub cleanup_provides {
 
 sub cleanup {
     my ($self, $lane_path, $action_lock) = @_;
+
+
+    # Debug provide done file and exit.
+    Utils::CMD("touch " . File::Spec->catfile($lane_path, 'rna_seq_done'));
+    return $$self{'Yes'};
+
+
+
+
     my $fs = VertRes::Utils::FileSystem->new();
 
     # for each caller, we move the files we want to keep to the root directory
@@ -1475,7 +1544,7 @@ sub cleanup {
     
     my $file_list = File::Spec->catfile($lane_path, 'file.list');
     Utils::CMD("rm $file_list") if (-e $file_list);
-    Utils::CMD("touch " . File::Spec->catfile($lane_path, '.snps_done'));
+    Utils::CMD("touch " . File::Spec->catfile($lane_path, 'rna_seq_done'));
     return $$self{'Yes'};
 }
 
@@ -1515,7 +1584,7 @@ sub update_db_provides {
 
  Title   : update_db
  Usage   : $obj->update_db('/path/to/lane', 'lock_filename');
- Function: Records in the database that the lane has been improved.
+ Function: Records in the database that the lane has completed RNA-Seq.
  Returns : $VertRes::Pipeline::Yes or No, depending on if the action completed.
  Args    : lane path, name of lock file to use
 
@@ -1530,11 +1599,11 @@ sub update_db {
     # flag in the database (if not already updated)
     my $vrlane = $self->{vrlane};
     my $vrtrack = $vrlane->vrtrack;
-    return $$self{'Yes'} if $vrlane->is_processed('snp_called');
+    return $$self{'Yes'} if $vrlane->is_processed('rna_seq');
     
     $vrtrack->transaction_start();
-    $vrlane->is_processed('snp_called',1);
-    $vrlane->update() || $self->throw("Unable to set improved status on lane $lane_path");
+    $vrlane->is_processed('rna_seq',1);
+    $vrlane->update() || $self->throw("Unable to set status on lane $lane_path");
     $vrtrack->transaction_commit();
 
     if ($self->{task}{cleanup}) {
@@ -1544,6 +1613,9 @@ sub update_db {
 
     return $$self{'Yes'};
 }
+
+
+# Note: Is this function ever used??
 
 
 sub is_finished {

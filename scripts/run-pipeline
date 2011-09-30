@@ -417,9 +417,9 @@ sub get_jobs
                 next;
             }
 
-            if ($action=~/^__RNA_Seq__$/ )
+            if ($action=~/^__VRTrack_RNA_Seq__$/ )
             {
-                get_rna_seq_jobs(\@jobs,$config_fname,$config_mtime,$config_data);
+                get_rna_seq_jobs_from_vrtrack(\@jobs,$config_fname,$config_mtime,$config_data);
                 next;
             }
 
@@ -1881,6 +1881,13 @@ sub get_rna_seq_jobs_from_vrtrack {
             next;
         }
 
+	# Debug
+	my $num_bams = scalar @bam_files;
+	my $num_maps = scalar keys %mapstat_ids;
+	debug($config_data,"Found $num_bams bams $num_maps with mapstats for RNA-Seq in $lane_path\n");
+	#next;
+
+
         # work out which is the latest bam to use for RNA Seq: the
         # one with the largest mapstats id.
         my @ids = sort {$b<=>$a} keys %mapstat_ids;
@@ -1892,21 +1899,21 @@ sub get_rna_seq_jobs_from_vrtrack {
         }
 
         my $bam_for_calling = $mapstat_ids{$ids[0]}[0];
-	# Note: Change $snp_dir 
-        my $snp_dir = $bam_for_calling;
-        if ($snp_dir =~ m/^(.*)\.bam$/){
-            $snp_dir = "$1.snp";
+	# Note: Changed $snp_dir $rna_dir 
+        my $rna_dir = $bam_for_calling;
+        if ($rna_dir =~ m/^(.*)\.bam$/){
+            $rna_dir = "$1.rna";
         }
         else {
             die "Fixme: couldn't work out working directory name, bam $bam_for_calling doesn't end with .bam?\n";
         }
 
-        unless (-d $snp_dir) {
-            mkdir $snp_dir or die "Could not mkdir $snp_dir\n";
+        unless (-d $rna_dir) {
+            mkdir $rna_dir or die "Could not mkdir $rna_dir\n";
         }     
 
         # make the file list file for the pipeline
-        my $file_list = File::Spec->catfile($snp_dir, 'file.list');
+        my $file_list = File::Spec->catfile($rna_dir, 'file.list');
         unless (-e $file_list){
             open my $fh, '>', $file_list or debug($config_data, "Error opening $file_list\n");
             print $fh $bam_for_calling, "\n";
@@ -1916,7 +1923,7 @@ sub get_rna_seq_jobs_from_vrtrack {
         $config_data->{data}{file_list} = $file_list;
         $lane_info->{vrlane} = $vrlane;
         $lane_info->{lane_path} = $path;
-        my $job = Job->new({lane_info=>$lane_info, %$config_data, path=>$snp_dir, config=>$config, mtime=>$mtime});
+        my $job = Job->new({lane_info=>$lane_info, %$config_data, path=>$rna_dir, config=>$config, mtime=>$mtime});
         push @$jobs, $job;
 
         $lanes_count++;
