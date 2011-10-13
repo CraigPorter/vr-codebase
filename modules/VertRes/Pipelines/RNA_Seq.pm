@@ -186,6 +186,13 @@ our @actions =
         'requires' => \&dummy_requires, 
         'provides' => \&dummy_provides,
     },
+    # Dummy function
+    {
+        'name'     => 'filter',
+        'action'   => \&filter,
+        'requires' => \&filter_requires, 
+        'provides' => \&filter_provides,
+    },
     # clean up any temp files after RNA-Seq
     {
         'name'     => 'cleanup',
@@ -764,6 +771,8 @@ rename('$name.vcf.gz.part','$name.vcf.gz') or Utils::error("rename $name.vcf.gz.
 }
 
 
+#---------------------PIPELINE------------------------
+
 # Dummy function
 # Requires file list
 sub dummy_requires
@@ -794,6 +803,37 @@ sub dummy
 
 
     Utils::CMD("touch $dir/dummy.done",{verbose=>1});
+
+    return $$self{Yes};
+}
+# Filter function
+# Requires input bam 
+sub filter_requires
+{
+    my ($self,$dir) = @_;
+    return ['dummy.done'];
+}
+
+sub filter_provides {
+    return ['filter.done'];}
+
+
+sub filter
+{
+    my ($self,$dir,$lock_file) = @_;
+
+    $self->debug("Dir: $dir\n");
+
+
+
+    my $bams = $self->read_files($$self{file_list});
+    foreach my $bam (@{$bams})
+    {
+	$self->debug("Bam: $bam\n");
+    }
+
+
+    Utils::CMD("touch $dir/filter.done",{verbose=>1});
 
     return $$self{Yes};
 }
