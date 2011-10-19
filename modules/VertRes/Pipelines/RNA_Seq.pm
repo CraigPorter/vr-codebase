@@ -179,20 +179,31 @@ use File::Copy;
 # - cleanup - Shouldn't be too much.
 our @actions = 
 (
-    # Dummy function
+#    # Dummy function
+#    {
+#        'name'     => 'dummy',
+#        'action'   => \&dummy,
+#        'requires' => \&dummy_requires, 
+#        'provides' => \&dummy_provides,
+#    },
+
+#    # Dummy function
+#    {
+#        'name'     => 'filter',
+#        'action'   => \&filter,
+#        'requires' => \&filter_requires, 
+#        'provides' => \&filter_provides,
+#    },
+
+    # Samtools varFilter
     {
-        'name'     => 'dummy',
-        'action'   => \&dummy,
-        'requires' => \&dummy_requires, 
-        'provides' => \&dummy_provides,
+        'name'     => 'varFilter',
+        'action'   => \&varFilter,
+        'requires' => \&varFilter_requires, 
+        'provides' => \&varFilter_provides,
     },
-    # Dummy function
-    {
-        'name'     => 'filter',
-        'action'   => \&filter,
-        'requires' => \&filter_requires, 
-        'provides' => \&filter_provides,
-    },
+
+
     # clean up any temp files after RNA-Seq
     {
         'name'     => 'cleanup',
@@ -265,7 +276,8 @@ our $options =
     bsub_opts_qcall      => "-q normal -R 'select[type==X86_64] rusage[thouio=1]'",
     bsub_opts_gatk       => "-q normal -M3000000 -R 'select[type==X86_64 && mem>3000] rusage[mem=3000,thouio=1]'",
     chunks_overlap  => 250,
-    fai_chr_regex   => '\d+|x|y',
+    #fai_chr_regex   => '\d+|x|y',
+    fai_chr_regex   => 'FN543502', #debug - only one chr
     gatk_opts       => { all=>{verbose=>1} },
     dbSNP_rod       => undef,
     dbSNP_vcf       => undef,
@@ -279,9 +291,11 @@ our $options =
     split_size_mpileup   => 1_000_000,
     split_size_qcall     => 1_000_000,
     split_size_gatk      => 1_000_000,
-    varfilter       => 'samtools.pl varFilter -S 20 -i 20',
+    #varfilter       => 'samtools.pl varFilter -S 20 -i 20',
+    varfilter       => 'samtools.pl varFilter -d 2',
     pileup_rmdup    => 'pileup-rmdup',
-    samtools_pileup_params => '-d 500',   # homozygous: '-r 0.0001 -d 500'
+    #samtools_pileup_params => '-d 500',   # homozygous: '-r 0.0001 -d 500'
+    samtools_pileup_params => '',   # No params
     vcf_rmdup       => 'vcf-rmdup',
     vcf_stats       => 'vcf-stats',
     filter4vcf      => qq[awk '/^#/||\\\$6>=3' | vcfutils.pl filter4vcf],
@@ -888,7 +902,9 @@ sub run_varfilter
     my ($self,$bam,$name,$chunk) = @_;
     if ( !-e "$name.pileup" )
     {
-        Utils::CMD(qq[samtools view -bh $bam $chunk | samtools pileup $$self{samtools_pileup_params} -c -f $$self{fa_ref} - | $$self{varfilter} > $name.pileup.part],{verbose=>1});
+	#pileup -> mpileup
+        #Utils::CMD(qq[samtools view -bh $bam $chunk | samtools pileup $$self{samtools_pileup_params} -c -f $$self{fa_ref} - | $$self{varfilter} > $name.pileup.part],{verbose=>1});
+        Utils::CMD(qq[samtools view -bh $bam $chunk | samtools mpileup $$self{samtools_pileup_params} -c -f $$self{fa_ref} - | $$self{varfilter} > $name.pileup.part],{verbose=>1});
         rename("$name.pileup.part","$name.pileup") or $self->throw("rename $name.pileup.part $name.pileup: $!");
     }
     Utils::CMD("touch _$name.done",{verbose=>1});
@@ -902,7 +918,7 @@ sub varfilter_split_chunks
     return qq[
 use strict;
 use warnings;
-use VertRes::Pipelines::SNPs;
+use VertRes::Pipelines::RNA_Seq;
 
 my \$opts = {
     file_list  => q[$$self{file_list}],
@@ -912,8 +928,8 @@ my \$opts = {
     varfilter  => q[$$self{varfilter}],
     samtools_pileup_params => q[$$self{samtools_pileup_params}],
 };
-my \$snps = VertRes::Pipelines::SNPs->new(%\$opts);
-\$snps->run_varfilter(q[$bam],q[$chunk_name],q[$chunk]);
+my \$rnaseq = VertRes::Pipelines::RNA_Seq->new(%\$opts);
+\$rnaseq->run_varfilter(q[$bam],q[$chunk_name],q[$chunk]);
 
     ];
 }
