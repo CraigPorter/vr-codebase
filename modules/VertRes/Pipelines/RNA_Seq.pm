@@ -187,20 +187,20 @@ our @actions =
 #        'provides' => \&dummy_provides,
 #    },
 
-#    # Dummy function
-#    {
-#        'name'     => 'filter',
-#        'action'   => \&filter,
-#        'requires' => \&filter_requires, 
-#        'provides' => \&filter_provides,
-#    },
-
-    # Samtools varFilter
+    # Dummy function
     {
-        'name'     => 'varFilter',
-        'action'   => \&varFilter,
-        'requires' => \&varFilter_requires, 
-        'provides' => \&varFilter_provides,
+        'name'     => 'filter',
+        'action'   => \&filter,
+        'requires' => \&filter_requires, 
+        'provides' => \&filter_provides,
+    },
+
+    # RPKM
+    {
+        'name'     => 'rpkm',
+        'action'   => \&,
+        'requires' => \&rpkm_requires, 
+        'provides' => \&rpkm_provides,
     },
 
 
@@ -787,19 +787,20 @@ rename('$name.vcf.gz.part','$name.vcf.gz') or Utils::error("rename $name.vcf.gz.
 
 #---------------------PIPELINE------------------------
 
-# Dummy function
-# Requires file list
-sub dummy_requires
+# Filter function
+# Currently checks working dir, bam and gff files.
+# Mostly placeholder at the moment.
+sub filter_requires
 {
     my ($self,$dir) = @_;
     return [$$self{file_list}];
 }
 
-sub dummy_provides {
-    return ['dummy.done'];}
+sub filter_provides {
+    return ['filter.done'];}
 
 
-sub dummy
+sub filter
 {
     my ($self,$dir,$lock_file) = @_;
 
@@ -816,41 +817,61 @@ sub dummy
     }
 
 
-    Utils::CMD("touch $dir/dummy.done",{verbose=>1});
-
-    return $$self{Yes};
-}
-# Filter function
-# Requires input bam 
-sub filter_requires
-{
-    my ($self,$dir) = @_;
-    return ['dummy.done'];
-}
-
-sub filter_provides {
-    return ['filter.done'];}
-
-
-sub filter
-{
-    my ($self,$dir,$lock_file) = @_;
-
-    $self->debug("Dir: $dir\n");
-
-
-
-    my $bams = $self->read_files($$self{file_list});
-    foreach my $bam (@{$bams})
-    {
-	$self->debug("Bam: $bam\n");
-    }
-
-
     Utils::CMD("touch $dir/filter.done",{verbose=>1});
 
     return $$self{Yes};
 }
+
+# RPKM Calculates RPKM from Input BAM
+sub rpkm_requires
+{
+    my ($self,$dir) = @_;
+    return ['filter.done',$$self{file_list},$$self{gff_ref}];
+}
+
+sub rpkm_provides {
+    return ['rpkm.done'];}
+
+
+sub rpkm
+{
+    my ($self,$dir,$lock_file) = @_;
+
+
+    # Parse GFF
+    #open(GFF, $$self{gff_ref};) or die("Can't open $file\n");
+    open(GFF, $$self{gff_ref};) or die("Can't open $file\n");
+
+    while( my $line = <GFF> )
+    {
+	next if( $line =~ /^##/ ); # Skip header
+	my @data  = split(/\t/,$line);
+	unless($data[2] eq "CDS"){ next; } # select CDS  How the hell did I get an infinite loop here? 
+	my ($name,$junk) = split(/;/,$data[8],2);
+ 
+	unless( $name =~ /^ID=".+"$/ ){ next; }
+    
+	$name =~ s/^ID="|"$//g; #
+	($junk, $name) = split(/\./,$name,2);# just hack it for now
+
+	$start{$name}  = $data[3];
+	$end{$name}    = $data[4];
+	$strand{$name} = $data[6] eq '+' ? '1':'-1';
+
+    }
+    close GFF;
+
+
+
+
+
+
+    Utils::CMD("touch $dir/filter.done",{verbose=>1});
+    return $$self{Yes};
+}
+
+
+
 
 #---------- varFilter ---------------------
 
