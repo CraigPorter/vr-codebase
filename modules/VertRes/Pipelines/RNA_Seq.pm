@@ -198,7 +198,7 @@ our @actions =
     # RPKM
     {
         'name'     => 'rpkm',
-        'action'   => \&,
+        'action'   => \&rpkm,
         'requires' => \&rpkm_requires, 
         'provides' => \&rpkm_provides,
     },
@@ -789,7 +789,7 @@ rename('$name.vcf.gz.part','$name.vcf.gz') or Utils::error("rename $name.vcf.gz.
 
 # Filter function
 # Currently checks working dir, bam and gff files.
-# Mostly placeholder at the moment.
+# Placeholder at the moment.
 sub filter_requires
 {
     my ($self,$dir) = @_;
@@ -826,7 +826,7 @@ sub filter
 sub rpkm_requires
 {
     my ($self,$dir) = @_;
-    return ['filter.done',$$self{file_list},$$self{gff_ref}];
+    return ['filter.done'];
 }
 
 sub rpkm_provides {
@@ -835,42 +835,300 @@ sub rpkm_provides {
 
 sub rpkm
 {
-    my ($self,$dir,$lock_file) = @_;
+    my ($self,$lane_path,$lock_file) = @_;
+
+    my $bams = $self->read_files($$self{file_list});
+    my $bam = $$bams[0];
+#    my $lane  = $$self{lane};
 
 
-    # Parse GFF
-    #open(GFF, $$self{gff_ref};) or die("Can't open $file\n");
-    open(GFF, $$self{gff_ref};) or die("Can't open $file\n");
+    # Script to be run by pipeline
+    open(my $fh, '>', "$lane_path/_rpkm.pl") or Utils::error("$lane_path/_rpkfm.pl: $!");
 
-    while( my $line = <GFF> )
+    print $fh qq[
+use VertRes::Pipelines::RNA_Seq;
+
+my \%params = 
+(
+    'file_list' => q[$bam]
+);
+
+my \$rpkm = VertRes::Pipelines::RNA_Seq->new(\%params);
+\$rpkm->run_rpkm(q[$$self{gff_ref}],q[$bam]);
+Utils::CMD("touch $lane_path/rpkm.done");
+
+];
+    close $fh;
+    #LSF::run($lock_file,"$lane_path","_${lane}_rpkm", $self, qq{perl -w _rpkm.pl});
+    LSF::run($lock_file,"$lane_path","_rpkm", $self, qq{perl -w _rpkm.pl});
+    return $$self{'No'};
+}
+
+sub run_rpkm
+{
+    my ($self,$gff_file,$bam_file) = @_;
+
+    $self->debug("Run RPKM Start...\n");
+    #my $gene_position_ref = $self->rpkm_parse_gff($gff_file);
+
+
+    $self->rpkm_test($gff_file,$bam_file);
+
+    
+    $self->debug("Run RPKM Finish...\n");
+
+    return $$self{Yes};
+}
+
+sub rpkm_parse_gff
+{
+    my ($self,$gff_file) = @_;
+
+    $self->debug("Parse GFF Start...\n");
+
+
+    my %start;
+    my %end;
+    my %strand;
+
+
+
+
+    # Read GFF
+    open(my $fh, $gff_file) or $self->throw("Can't open $gff_file\n");
+    while( my $line = <$fh> )
     {
 	next if( $line =~ /^##/ ); # Skip header
+
 	my @data  = split(/\t/,$line);
-	unless($data[2] eq "CDS"){ next; } # select CDS  How the hell did I get an infinite loop here? 
+	unless((defined $data[2]) && ($data[2] eq "CDS")){ next; } # select CDS
+
 	my ($name,$junk) = split(/;/,$data[8],2);
- 
 	unless( $name =~ /^ID=".+"$/ ){ next; }
-    
 	$name =~ s/^ID="|"$//g; #
-	($junk, $name) = split(/\./,$name,2);# just hack it for now
 
 	$start{$name}  = $data[3];
 	$end{$name}    = $data[4];
 	$strand{$name} = $data[6] eq '+' ? '1':'-1';
-
     }
-    close GFF;
+    close $fh;
+
+    my %cds;
+    my $position = 0;
 
 
+    foreach my $gene (sort keys (%start)) {
+	$position = $start{$gene};
+	until ($position > $end{$gene}) {
+	    push(@{$cds{$position}}, $gene);
+	    $position++;
+	}
+    }
+
+    $self->debug("Parse GFF Finish...\n");
 
 
-
-
-    Utils::CMD("touch $dir/filter.done",{verbose=>1});
-    return $$self{Yes};
+    return \%cds;
 }
 
+sub rpkm_test
+{
+    my ($self,$gff_file,$bam_file) = @_;
 
+
+
+
+
+
+my %start;
+my %end;
+my %strand;
+my $name;
+my $gene;
+
+#print STDERR "Reading in annotation...";
+
+#my $file = '/lustre/scratch103/pathogen/pathpipe/refs/Citrobacter/rodentium_ICC168/Citrobacter_rodentium_ICC168_v1.gff';
+    my $file = $gff_file;
+
+open(GFF, $file) or die("Can't open $file\n");
+
+# Read GFF
+while( my $line = <GFF> )
+{
+    next if( $line =~ /^##/ ); # Skip header
+
+    my @data  = split(/\t/,$line);
+    unless((defined $data[2]) && ($data[2] eq "CDS")){ next; } # select CDS
+
+    my ($name,$junk) = split(/;/,$data[8],2);
+    unless( $name =~ /^ID=".+"$/ ){ next; }
+    $name =~ s/^ID="|"$//g; #
+
+    $start{$name}  = $data[3];
+    $end{$name}    = $data[4];
+    $strand{$name} = $data[6] eq '+' ? '1':'-1';
+}
+close GFF;
+
+
+#print STDERR "complete\nNow summarising annotation...";
+
+my %CDS;
+my $position = 0;
+
+
+foreach $gene (sort keys (%start)) {
+	$position = $start{$gene};
+	until ($position > $end{$gene}) {
+		push(@{$CDS{$position}}, $gene);
+		$position++;
+	}
+}
+
+#print STDERR "complete\nNow reading alignment data:\n";
+
+my @data;
+my $line;
+my %cigar;
+my @cigar;
+my @match;
+my $match = 0;
+my $count = 0;
+my $number;
+my $element;
+my $match_length = 0;
+my %reads;
+my $read_pos;
+my %names;
+my @hitgenes;
+my $potential_new_gene;
+my @antisense;
+my %antisense;
+
+
+my $samfile = '';
+#$samfile .= 'samtools view -b -q 10 /lustre/scratch101/pathogen/pathpipe-test/cp7/seq-pipelines/Citrobacter/rodentium/TRACKING/421/airLcr/SLX/airLcr_121145/4407_6#3/25.pe.raw.sorted.bam |'; #filter
+#$samfile .= 'samtools view -h - |'; #sam
+#$samfile .= ' head -1000 |'; # debug
+
+$samfile .= "samtools view -b -q 10 $bam_file |"; #filter
+$samfile .= 'samtools view -h - |'; #sam
+
+open SAM, $samfile or die;
+
+while($line = <SAM>)
+{
+    next if $line =~ /^\@\w{2}\t/; # Skip header.
+
+    @data = split(/\s+/,$line);
+
+    # Note: What's X0:i:1 ? 
+    next unless($data[5] ne '0' && $data[5] ne '*' && grep(/X0:i:1/,@data));
+    
+    $count++;
+    @cigar = split(//,$data[5]);
+    foreach $element (@cigar) {
+	if ($element =~ /[A-Za-z]/) {
+	    push(@match,(($element) x $number));
+	    $number = "";
+	} elsif ($element =~ /\d/) {
+	    $number.=$element;
+	}
+    }
+
+    $read_pos = $match = $data[3];
+    # Note: Replace this loop with a for loop.
+    until ($match == ($read_pos+$#match)) {
+	if ($match[($match - $read_pos)] eq 'M') {
+	    if (defined($CDS{$match}) && $CDS{$match} ne "") {
+		foreach $potential_new_gene (@{$CDS{$match}}) {	
+		    if ($data[1] & 16) {
+			if ($strand{$potential_new_gene} == 1) {	
+			    unless (grep(/$potential_new_gene/,@hitgenes)) {
+				push(@hitgenes,$potential_new_gene)
+			    }
+			} else {
+			    unless (grep(/$potential_new_gene/,@antisense)) {
+				push(@antisense,$potential_new_gene)
+			    }
+			}
+		    } else {
+			if ($strand{$potential_new_gene} == -1) {
+			    unless (grep(/$potential_new_gene/,@hitgenes)) {
+				push(@hitgenes,$potential_new_gene)
+			    }
+			} else {
+			    unless (grep(/$potential_new_gene/,@antisense)) {
+				push(@antisense,$potential_new_gene)
+			    }
+			}
+		    }
+		}
+	    }
+	}
+	$match++;
+    }
+
+    foreach $gene (@hitgenes) {
+	$reads{$gene}++;
+    }
+    foreach $gene (@antisense) {
+	$antisense{$gene}++;
+    }
+    @hitgenes = ();
+    @antisense = ();
+    $match_length = 0;
+    %cigar = ();
+    @match=();
+    @data = ();
+}
+close SAM;
+#print STDERR "File sam data complete\n";
+
+
+open(RESULTS, '> results_iv.csv') or die "Can't open results file\n" ;
+#print RESULTS "ID\tStart\tEnd\tLen\tFwdRead\tRevRead\tFwdRPKM\tRevRPKM\n";
+
+foreach $name (sort { my @A = split(/\./,$a,2); my @B = split(/\./,$b,2); $A[0] cmp $B[0] || $A[1] <=> $B[1]; } keys %start) 
+{
+    
+    # Skip if no reads
+    next unless(exists($reads{$name}) || exists($antisense{$name}));
+
+    my $length = ($end{$name} - $start{$name} + 1);
+    my $output_line = '';
+
+    unless (exists($reads{$name})) {
+	$reads{$name} = 0;
+    }
+    unless (exists($antisense{$name})) {
+	$antisense{$name} = 0;
+    }
+    $output_line = "$name\t$start{$name}\t$end{$name}\t$length";
+    $output_line .= "\t$reads{$name}\t$antisense{$name}";
+    
+    my $rpkm = $reads{$name}/(($length/1000)*($count/1000000));
+    $output_line .= sprintf("\t%.1f", $rpkm);
+
+    $rpkm = $antisense{$name}/(($length/1000)*($count/1000000));
+    $output_line .= sprintf("\t%.1f\n", $rpkm);
+
+    print RESULTS $output_line;
+}	
+
+close(RESULTS);
+
+
+
+
+
+
+
+
+
+    return $$self{Yes};
+}
 
 
 #---------- varFilter ---------------------
@@ -1671,6 +1929,8 @@ sub update_db_provides {
 
 sub update_db {
     my ($self, $lane_path, $action_lock) = @_;
+
+    return $$self{'Yes'}; # Debug
 
     # all the done files are there, so just need to update the processed
     # flag in the database (if not already updated)
