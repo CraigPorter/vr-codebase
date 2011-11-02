@@ -880,6 +880,7 @@ sub run_rpkm
     return $$self{Yes};
 }
 
+# Not called yet
 sub rpkm_parse_gff
 {
     my ($self,$gff_file) = @_;
@@ -931,6 +932,9 @@ sub rpkm_parse_gff
     return \%cds;
 }
 
+# Test routine 
+# Cut and pasted from test script needs broken into subroutines
+# based on Nick Croucher's pipeline
 sub rpkm_test
 {
     my ($self,$gff_file,$bam_file) = @_;
