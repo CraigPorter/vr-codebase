@@ -792,25 +792,27 @@ rename('$name.vcf.gz.part','$name.vcf.gz') or Utils::error("rename $name.vcf.gz.
 # Placeholder at the moment.
 sub filter_requires
 {
-    my ($self,$dir) = @_;
-    return [$$self{file_list}];
+    my ($self,$lane_path) = @_;
+    return [$self->{file_list}];
 }
 
+# Note - add prefix
 sub filter_provides {
-    return ['filter.done'];}
+    my ($self,$lane_path) = @_;
+    return [$self->{prefix}.'filter.done'];}
 
 
 sub filter
 {
-    my ($self,$dir,$lock_file) = @_;
+    my ($self,$lane_path,$lock_file) = @_;
 
-    $self->debug("Dir: $dir\n");
+    $self->debug("Dir: $lane_path\n");
 
     my $gff = $$self{gff_ref};
     $self->debug("Gff: $gff\n");
 
 
-    my $bams = $self->read_files($$self{file_list});
+    my $bams = $self->read_files($self->{file_list});
     foreach my $bam (@{$bams})
     {
 	$self->debug("Bam: $bam\n");
@@ -825,25 +827,34 @@ sub filter
 # RPKM Calculates RPKM from Input BAM
 sub rpkm_requires
 {
-    my ($self,$dir) = @_;
-    return ['filter.done'];
+    my ($self,$lane_path) = @_;
+   return [$self->{prefix}.'filter.done'];
 }
 
 sub rpkm_provides {
-    return ['rpkm.done'];}
+    my ($self,$lane_path) = @_;
+    return [$self->{prefix}.'rpkm.done'];}
 
 
 sub rpkm
 {
     my ($self,$lane_path,$lock_file) = @_;
 
-    my $bams = $self->read_files($$self{file_list});
+
+    # Get file list - Note set this to choose latest bam file.
+    my $bams = $self->read_files($self->{file_list});
     my $bam = $$bams[0];
 #    my $lane  = $$self{lane};
 
 
-    # Script to be run by pipeline
-    open(my $fh, '>', "$lane_path/_rpkm.pl") or Utils::error("$lane_path/_rpkfm.pl: $!");
+
+
+    # Script to be run by pipeline (Note: Add prefix from conf file to name.)
+    # Note: File_list param required by new. 
+    my $jobname = $self->{prefix}.'rpkm';
+    my $scriptname = $jobname.'.pl';
+    $self->debug("Writing to $lane_path/$scriptname\n");
+    open(my $fh, '> '.$lane_path.'/'.$scriptname) or Utils::error("$scriptname: $!");
 
     print $fh qq[
 use VertRes::Pipelines::RNA_Seq;
@@ -860,7 +871,7 @@ Utils::CMD("touch $lane_path/rpkm.done");
 ];
     close $fh;
     #LSF::run($lock_file,"$lane_path","_${lane}_rpkm", $self, qq{perl -w _rpkm.pl});
-    LSF::run($lock_file,"$lane_path","_rpkm", $self, qq{perl -w _rpkm.pl});
+    LSF::run($lock_file,$lane_path,$jobname, $self, qq{perl -w $scriptname});
     return $$self{'No'};
 }
 
@@ -953,12 +964,14 @@ my $gene;
 #print STDERR "Reading in annotation...";
 
 #my $file = '/lustre/scratch103/pathogen/pathpipe/refs/Citrobacter/rodentium_ICC168/Citrobacter_rodentium_ICC168_v1.gff';
-    my $file = $gff_file;
+    #my $file = $gff_file;
 
-open(GFF, $file) or die("Can't open $file\n");
+#open(GFF, $gff_file) or die("Can't open $gff_file\n");
+open($gff_fh, $gff_file) or die("Can't open $gff_file\n");
 
 # Read GFF
-while( my $line = <GFF> )
+#while( my $line = <GFF> )
+while( my $line = <$gff_fh> )
 {
     next if( $line =~ /^##/ ); # Skip header
 
@@ -973,7 +986,8 @@ while( my $line = <GFF> )
     $end{$name}    = $data[4];
     $strand{$name} = $data[6] eq '+' ? '1':'-1';
 }
-close GFF;
+#close GFF;
+close $gff_fh;
 
 
 #print STDERR "complete\nNow summarising annotation...";
@@ -1019,9 +1033,11 @@ my $samfile = '';
 $samfile .= "samtools view -b -q 10 $bam_file |"; #filter
 $samfile .= 'samtools view -h - |'; #sam
 
-open SAM, $samfile or die;
+#open SAM, $samfile or die;
+open($sam_fh, $samfile) or $self->throw("Can't open $samfile\n");
 
-while($line = <SAM>)
+#while($line = <SAM>)
+while($line = <$sam_fh>)
 {
     next if $line =~ /^\@\w{2}\t/; # Skip header.
 
@@ -1042,7 +1058,7 @@ while($line = <SAM>)
     }
 
     $read_pos = $match = $data[3];
-    # Note: Replace this loop with a for loop.
+    # Note: Replace this loop with a for loop. (Once moved to subroutine.)
     until ($match == ($read_pos+$#match)) {
 	if ($match[($match - $read_pos)] eq 'M') {
 	    if (defined($CDS{$match}) && $CDS{$match} ne "") {
@@ -1087,11 +1103,13 @@ while($line = <SAM>)
     @match=();
     @data = ();
 }
-close SAM;
+#close SAM;
+close $sam_fh;
 #print STDERR "File sam data complete\n";
 
 
-open(RESULTS, '> results_iv.csv') or die "Can't open results file\n" ;
+#open(RESULTS, "> $bam_file.csv") or die "Can't open results file\n" ;
+open(my $results_fh, "> $bam_file.rnaseq_test") or die "Can't open results file\n" ;
 #print RESULTS "ID\tStart\tEnd\tLen\tFwdRead\tRevRead\tFwdRPKM\tRevRPKM\n";
 
 foreach $name (sort { my @A = split(/\./,$a,2); my @B = split(/\./,$b,2); $A[0] cmp $B[0] || $A[1] <=> $B[1]; } keys %start) 
@@ -1118,10 +1136,12 @@ foreach $name (sort { my @A = split(/\./,$a,2); my @B = split(/\./,$b,2); $A[0] 
     $rpkm = $antisense{$name}/(($length/1000)*($count/1000000));
     $output_line .= sprintf("\t%.1f\n", $rpkm);
 
-    print RESULTS $output_line;
+    #print RESULTS $output_line;
+    print $results_fh $output_line;
 }	
 
-close(RESULTS);
+#close(RESULTS);
+close $results_fh;
 
 
 
@@ -1790,9 +1810,10 @@ sub cleanup_requires {
     my @requires;
 
     # need a done file from each caller
+    my $prefix = $self->{prefix};
     for my $task (keys %{$self->{task}}) {
         next if ($task eq "update_db" or $task eq "cleanup");
-        push @requires, "$task.done";
+        push @requires, $prefix.$task.'.done';
     }
 
     return \@requires;
@@ -1814,7 +1835,7 @@ sub cleanup_provides {
     my @provides;
 
     if ($self->{task}{cleanup}){
-        push @provides, 'rna_seq_done';
+        push @provides, 'rna_seq_done'; # Base this on bam file.
     }
     else {
         @provides = @{$self->cleanup_requires($lane_path)};
@@ -1839,7 +1860,8 @@ sub cleanup {
     my ($self, $lane_path, $action_lock) = @_;
 
 
-    # Debug provide done file and exit.
+    # Debug provide done file and return.
+    # Note need setup to remove filelist, rpkm script and done files.
     Utils::CMD("touch " . File::Spec->catfile($lane_path, 'rna_seq_done'));
     return $$self{'Yes'};
 
@@ -1934,6 +1956,7 @@ sub update_db_provides {
 sub update_db {
     my ($self, $lane_path, $action_lock) = @_;
 
+    # This is for when I don't want to update the database - because I'll just have to go un-update it.
     return $$self{'Yes'}; # Debug
 
     # all the done files are there, so just need to update the processed
