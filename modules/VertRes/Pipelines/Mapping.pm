@@ -32,6 +32,7 @@ coverage_limit => {
 },
 
 data => {
+    mark_duplicates => 1,
     slx_mapper => 'bwa',
     '454_mapper' => 'ssaha',
     reference => '/abs/path/to/ref.fa',
@@ -169,6 +170,10 @@ our $actions = [ { name     => 'bam_to_fastq',
                    action   => \&statistics,
                    requires => \&statistics_requires, 
                    provides => \&statistics_provides },
+                 { name     => 'mark_duplicates',
+                   action   => \&mark_duplicates,
+                   requires => \&mark_duplicates_requires, 
+                   provides => \&mark_duplicates_provides },
                  { name     => 'update_db',
                    action   => \&update_db,
                    requires => \&update_db_requires, 
@@ -897,12 +902,16 @@ sub merge_requires {
         my $bam = $self->{fsu}->catfile($lane_path, "$self->{mapstats_id}.$ended.raw.sorted.bam");
         my $check_file = $self->{fsu}->catfile($lane_path, ".$self->{mapstats_id}.$ended.raw.sorted.bam.checked");
         next if -s $bam && -e $check_file;
+
+	# Ignore mapped status. Used if remapping lane with new reference or mapper
+	my $remapping = (exists $$self{'ignore_mapped_status'} && $$self{'ignore_mapped_status'}) ? 1:0;
         
         # if we've already mapped this lane but don't have the check_file,
         # we probably don't have a split dir anymore and just want to
         # check the merged bam (which might actually be a recal bam)
+        # If remapping then ignore the processed status.
         my $recal_bam = $self->{fsu}->catfile($lane_path, "$self->{mapstats_id}.$ended.recal.sorted.bam");
-        if ($self->{vrlane}->is_processed('mapped') || $self->{fsu}->file_exists($recal_bam) || $self->{fsu}->file_exists($bam)) {
+        if (($self->{vrlane}->is_processed('mapped') && !$remapping) || $self->{fsu}->file_exists($recal_bam) || $self->{fsu}->file_exists($bam)) {
             next if -e $check_file;
             if ($self->{fsu}->file_exists($recal_bam)) {
                 push(@requires, $recal_bam);
@@ -1206,6 +1215,113 @@ exit;
     return $self->{No};
 }
 
+
+
+=head2 mark_duplicates_requires
+
+ Title   : mark_duplicates_requires
+ Usage   : my $required_files = $obj->mark_duplicates_requires('/path/to/lane');
+ Function: Find out what files the mark_duplicates action needs before it will run.
+ Returns : array ref of file names
+ Args    : lane path
+
+=cut
+sub mark_duplicates_requires {
+  my ($self, $lane_path) = @_;
+  my @bams = @{$self->statistics_requires($lane_path)};
+  my @stats = @{$self->statistics_provides($lane_path)};
+  return [@bams, @stats];
+}
+
+
+
+=head2 mark_duplicates_provides
+
+ Title   : mark_duplicates_provides
+ Usage   : my $provided_files = $obj->mark_duplicates_provides('/path/to/lane');
+ Function: Find out what files the mark_duplicates action generates on success.
+ Returns : array ref of file names
+ Args    : lane path
+
+=cut
+
+sub mark_duplicates_provides {
+    my ($self, $lane_path) = @_;
+    my @provides = ();
+    
+    if(( defined $$self{mark_duplicates}) && $$self{mark_duplicates})
+    {
+      foreach my $ended ('se', 'pe') {
+          $self->_get_read_args($lane_path, $ended) || next;
+        
+          my $file = "$self->{mapstats_id}.$ended.markdup.bam";
+          push(@provides, $file);
+      }
+    
+      @provides || $self->throw("Something went wrong; we don't seem to provide any marked duplicate bams!");
+    }
+    
+    return \@provides;
+}
+
+=head2 mark_duplicates
+
+ Title   : mark_duplicates
+ Usage   : $obj->mark_duplicates('/path/to/lane', 'lock_filename');
+ Function: Takes a sorted bam file and runs mark duplicates on it to produce a new bam file
+ Returns : $VertRes::Pipeline::Yes or No, depending on if the action completed.
+ Args    : lane path, name of lock file to use
+
+=cut
+
+sub mark_duplicates {
+      my ($self, $lane_path, $action_lock) = @_;
+      
+      my $verbose = $self->verbose;
+
+      foreach my $ended ('se', 'pe') {
+        my $bam_file = $self->{fsu}->catfile($lane_path, "$self->{mapstats_id}.$ended.raw.sorted.bam");
+        next if( -l $bam_file);
+        next unless( -e $bam_file);
+        my $mark_dup_bam_file = $self->{fsu}->catfile($lane_path, "$self->{mapstats_id}.$ended.markdup.bam");
+        next if( -e $mark_dup_bam_file);
+
+        my $script_name = $self->{fsu}->catfile($lane_path,  $self->{prefix}.'mark_duplicates_'.$ended.'_'.$self->{mapstats_id}.'.pl');
+        my $job_name = $self->{prefix}.'mark_duplicates_'.$ended.'_'.$self->{mapstats_id};
+        my $prev_error_file = $self->archive_bsub_files($lane_path, $job_name) || '';
+
+        open(my $scriptfh, '>', $script_name) or $self->throw("Couldn't write to temp script $script_name: $!");
+        
+
+        print $scriptfh qq{
+  use strict;
+  use VertRes::Wrapper::samtools;
+  use VertRes::Utils::Sam;
+
+  my \$sam_util = VertRes::Utils::Sam->new(verbose => $verbose);
+ 
+  \$sam_util->markdup('$bam_file', '$mark_dup_bam_file');
+  \$sam_util->index_bams(files=>['$mark_dup_bam_file']);
+  unlink('$bam_file');
+  unlink('$bam_file.bai');
+  symlink('$mark_dup_bam_file', '$bam_file');
+  symlink('$mark_dup_bam_file.bai', '$bam_file.bai');
+
+  exit;
+              };
+       close $scriptfh;
+ 
+       LSF::run($action_lock, $lane_path, $job_name, {bsub_opts => '-M8000000 -R \'select[mem>8000] rusage[mem=8000]\''}, qq{perl -w $script_name});
+
+      }
+
+      # we've only submitted to LSF, so it won't have finished; we always return
+      # that we didn't complete
+      return $self->{No};
+}
+
+
+
 =head2 update_db_requires
 
  Title   : update_db_requires
@@ -1218,8 +1334,8 @@ exit;
 
 sub update_db_requires {
     my ($self, $lane_path) = @_;
-    my @bams = @{$self->statistics_requires($lane_path)};
-    my @stats = @{$self->statistics_provides($lane_path)};
+    my @stats = @{$self->mark_duplicates_requires($lane_path)};
+    my @bams = @{$self->mark_duplicates_provides($lane_path)};
     return [@bams, @stats];
 }
 
@@ -1265,7 +1381,10 @@ sub update_db {
     my $vrlane = $self->{vrlane};
     my $vrtrack = $vrlane->vrtrack;
     
-    return $self->{Yes} if $vrlane->is_processed('mapped');
+    # Check if remapping lane with new reference or mapper
+    my $remapping = (exists $$self{'ignore_mapped_status'} && $$self{'ignore_mapped_status'}) ? 1:0;
+
+    return $self->{Yes} if $vrlane->is_processed('mapped') && !$remapping;
     
     $vrtrack->transaction_start();
     
@@ -1362,8 +1481,10 @@ sub update_db {
     }
 
     # set mapped status
-    $vrlane->is_processed('mapped', 1);
-    $vrlane->update() || $self->throw("Unable to set mapped status on lane $lane_path");
+    unless($vrlane->is_processed('mapped')) {
+	$vrlane->is_processed('mapped', 1);
+	$vrlane->update() || $self->throw("Unable to set mapped status on lane $lane_path");
+    }
     
     $vrtrack->transaction_commit();
     
@@ -1418,7 +1539,7 @@ sub cleanup {
     foreach my $file (qw(log job_status store_nfs
                          split_se split_pe
                          map_se map_pe
-                         merge_se merge_pe statistics)) {
+                         merge_se merge_pe statistics mark_duplicates)) {
         
         unlink($self->{fsu}->catfile($lane_path, $prefix.$file));
         
@@ -1445,6 +1566,15 @@ sub cleanup {
                     my $bam = join('.', $ended, 'raw', 'sorted.bam');
                     
                     $job_name = $prefix.$file.'_'.$self->{mapstats_id}.'.'.$bam;
+                    if ($suffix eq 'o') {
+                        $self->archive_bsub_files($lane_path, $job_name, 1);
+                    }
+                    unlink($self->{fsu}->catfile($lane_path, $job_name.'.'.$suffix));
+                }
+            }
+            elsif ($file =~ /mark_duplicates/) {
+                foreach my $ended ('pe', 'se') {
+                    $job_name = $prefix.$file.'_'.$ended.'_'.$self->{mapstats_id};
                     if ($suffix eq 'o') {
                         $self->archive_bsub_files($lane_path, $job_name, 1);
                     }
