@@ -1894,13 +1894,18 @@ sub get_rna_seq_jobs_from_vrtrack {
         my $mapstat_id = $ids[0];
         if (1 < scalar @{$mapstat_ids{$ids[0]}}) {
             # There can be only one...
-            debug($config_data, "Found more than one bam matching regex with mapstats id $ids[0], don't know which to use, in lane $lane_path\n");
-            next;
+#            debug($config_data, "Found more than one bam matching regex with mapstats id $ids[0], don't know which to use, in lane $lane_path\n");
+#            next;
+            debug($config_data, "Found more than one bam matching regex with mapstats id $ids[0], don't know which to use, in lane $lane_path so let's live dangerously.\n");
+            #next;
         }
 
         my $bam_for_calling = $mapstat_ids{$ids[0]}[0];
 	# Note: Changed $snp_dir $rna_dir 
         my $rna_dir = $bam_for_calling;
+#        if ($rna_dir =~ m/^(.*)\.bam$/){
+#            $rna_dir = "$1.rna";
+# Fudge this bit for now.
         if ($rna_dir =~ m/^(.*)\.bam$/){
             $rna_dir = "$1.rna";
         }

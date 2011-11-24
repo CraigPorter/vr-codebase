@@ -818,8 +818,7 @@ sub filter
 	$self->debug("Bam: $bam\n");
     }
 
-
-    Utils::CMD("touch $dir/filter.done",{verbose=>1});
+    Utils::CMD("touch $lane_path/$$self{prefix}filter.done",{verbose=>1});
 
     return $$self{Yes};
 }
@@ -866,7 +865,7 @@ my \%params =
 
 my \$rpkm = VertRes::Pipelines::RNA_Seq->new(\%params);
 \$rpkm->run_rpkm(q[$$self{gff_ref}],q[$bam]);
-Utils::CMD("touch $lane_path/rpkm.done");
+Utils::CMD("touch $lane_path/$jobname.done");
 
 ];
     close $fh;
@@ -967,7 +966,7 @@ my $gene;
     #my $file = $gff_file;
 
 #open(GFF, $gff_file) or die("Can't open $gff_file\n");
-open($gff_fh, $gff_file) or die("Can't open $gff_file\n");
+open(my $gff_fh, $gff_file) or die("Can't open $gff_file\n");
 
 # Read GFF
 #while( my $line = <GFF> )
@@ -1034,7 +1033,7 @@ $samfile .= "samtools view -b -q 10 $bam_file |"; #filter
 $samfile .= 'samtools view -h - |'; #sam
 
 #open SAM, $samfile or die;
-open($sam_fh, $samfile) or $self->throw("Can't open $samfile\n");
+open(my $sam_fh, $samfile) or $self->throw("Can't open $samfile\n");
 
 #while($line = <SAM>)
 while($line = <$sam_fh>)
