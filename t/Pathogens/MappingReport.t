@@ -61,7 +61,13 @@ my %mapstats_qc  = (raw_reads => 1438046, raw_bases => 109291496, clip_bases => 
 		    reads_mapped => 1423575, reads_paired => 1393135, bases_mapped  => 107477960, 
 		    rmdup_reads_mapped => 1423083, rmdup_bases_mapped => 107443038,
 		    adapter_reads => 83, error_rate => 0.00297524, mean_insert  => 315.6, sd_insert => 42.6,
-		    target_bases_mapped => 17238015, mean_target_coverage => 4.35, target_coverage_sd => 5.37);
+		    target_bases_mapped => 17238015);
+
+my %mapstats_qc_a = (raw_reads => 1438046, raw_bases => 109291496, clip_bases => 108674266,
+		     reads_mapped => 1423575, reads_paired => 1393135, bases_mapped  => 107477960, 
+		     rmdup_reads_mapped => 1423083, rmdup_bases_mapped => 107443038,
+		     adapter_reads => 83, error_rate => 0.00297524, mean_insert  => 315.6, sd_insert => 42.6,
+		     target_bases_mapped => 17238015, mean_target_coverage => 4.35, target_coverage_sd => 5.37);
 
 my %mapstats_map = (raw_reads => 10066330, raw_bases => 765041080, 
 		    reads_mapped => 9613107, reads_paired => 9268974, bases_mapped  => 726737126,
@@ -112,9 +118,23 @@ for my $field (keys %mapstats_qc)
 }
 $vrobject{mapstats_qc}->update();
 
+$vrobject{mapstats_qc_a} = VRTrack::Mapstats->create($vrtrack, $vrobject{lane}->id()); # qc mapstats A
+$vrobject{mapstats_qc_a}->lane_id($vrobject{lane}->id());
+$vrobject{mapstats_qc_a}->mapper_id($vrobject{mapper_a}->id);
+$vrobject{mapstats_qc_a}->assembly_id($vrobject{assembly}->id);
+for my $field (keys %mapstats_qc_a)
+{
+    $vrobject{mapstats_qc_a}->$field($mapstats_qc_a{$field});
+}
+$vrobject{mapstats_qc_a}->update();
+
 $vrobject{image} = VRTrack::Image->create($vrtrack, 'graph', ':)'); # qc graph image
 $vrobject{image}->mapstats_id($vrobject{mapstats_qc}->id());
 $vrobject{image}->update();
+
+$vrobject{image_a} = VRTrack::Image->create($vrtrack, 'graph', ':)'); # qc graph image
+$vrobject{image_a}->mapstats_id($vrobject{mapstats_qc_a}->id());
+$vrobject{image_a}->update();
 
 $vrobject{mapstats_map} = VRTrack::Mapstats->create($vrtrack, $vrobject{lane}->id()); # mapstats
 $vrobject{mapstats_map}->lane_id($vrobject{lane}->id());
@@ -166,7 +186,7 @@ is $row_blank->manual_qc,           'passed','manual_qc ok';
 is $row_blank->is_mapping_complete,    undef,'correctly marked as mapping not run';
 is $row_blank->is_qc_mapstats,             0,'correctly marked not qc mapstats';
 
-# valid qc lane
+# valid qc lane (cover depth calculated)
 ok my $row_qc = Pathogens::Reports::Mapping::Row->new(vrtrack => $vrtrack, lane => $vrobject{lane}, mapstats => $vrobject{mapstats_qc}), 'Read lane qc mapstats to row.';
 
 # qc lane
@@ -198,6 +218,13 @@ is $row_qc->npg_qc,             'pending','npg_qc ok';
 is $row_qc->manual_qc,           'passed','manual_qc ok';
 is $row_qc->is_mapping_complete,        1,'correctly marked as mapping run';
 is $row_qc->is_qc_mapstats,             1,'correctly marked as qc mapstats';
+
+# valid qc lane (cover depth from db)
+ok my $row_qc_a = Pathogens::Reports::Mapping::Row->new(vrtrack => $vrtrack, lane => $vrobject{lane}, mapstats => $vrobject{mapstats_qc_a}), 'Read lane qc mapstats to row.';
+
+# qc lane
+is $row_qc_a->depth_of_coverage,    30.45,'depth_of_coverage from db ok';
+is $row_qc_a->depth_of_coverage_sd, 37.59,'depth_of_coverage std dev from db ok';
 
 # valid mapping lane
 ok my $row_map = Pathogens::Reports::Mapping::Row->new(vrtrack => $vrtrack, lane => $vrobject{lane}, mapstats => $vrobject{mapstats_map}), 'Read lane qc mapstats to row.';
@@ -243,10 +270,10 @@ ok open(my $report_fh,">",\$report_output), 'opened report_fh to scalar';
 ok my $report = Pathogens::Reports::Mapping::Report->new( vrtrack => $vrtrack, filehandle => $report_fh, lanes => [$vrobject{lane}]),'opened report ok';
 ok $report->output_csv,'wrote report';
 
-my $expected_report_output = qq["Study ID",Sample,Lane,Cycles,"Yield (Reads)","Yield (Bases)","Type (QC/Mapping)",Reference,"Reference Size",Mapper,"Adapter (%)","Transposon (%)","Mapped (%)","Paired (%)","Mean Insert Size","Genome Covered (%)","Genome Covered (% >= 1X)","Genome Covered (% >= 5X)","Genome Covered (% >= 10X)","Genome Covered (% >= 50X)","Genome Covered (% >= 100X)","Depth of Coverage (X)","Duplication Rate","Error Rate","NPG QC","Manual QC"\r
-1000,Sparky,1234_5#6,76,10066330,765041080,QC,Sue_FMNH_PR_2081,23298589,velocimapper,0.0,NA,99.0,96.9,315.6,73.99,NA,NA,NA,NA,NA,32.28,0.0003,0.003,pending,passed\r
-1000,Sparky,1234_5#6,76,10066330,765041080,Mapping,Sue_FMNH_PR_2081,23298589,dinomap,0.0,NA,95.5,92.1,319,NA,88.2,70.4,62.2,25.1,2.2,30.16,NA,NA,pending,passed\r
-1000,Sparky,1234_5#6,76,10066330,765041080,Mapping,Sue_FMNH_PR_2081,23298589,dinomap,NA,NA,0.0,0.0,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,pending,passed\r
+my $expected_report_output = qq["Study ID",Sample,Lane,Cycles,"Yield (Reads)","Yield (Bases)","Type (QC/Mapping)",Reference,"Reference Size",Mapper,"Adapter (%)","Transposon (%)","Mapped (%)","Paired (%)","Mean Insert Size","Genome Covered (%)","Genome Covered (% >= 1X)","Genome Covered (% >= 5X)","Genome Covered (% >= 10X)","Genome Covered (% >= 50X)","Genome Covered (% >= 100X)","Depth of Coverage (X)","Depth of Coverage SD (X)","Duplication Rate","Error Rate","NPG QC","Manual QC"\r
+1000,Sparky,1234_5#6,76,10066330,765041080,QC,Sue_FMNH_PR_2081,23298589,velocimapper,0.0,NA,99.0,96.9,315.6,73.99,NA,NA,NA,NA,NA,30.45,37.59,0.0003,0.003,pending,passed\r
+1000,Sparky,1234_5#6,76,10066330,765041080,Mapping,Sue_FMNH_PR_2081,23298589,dinomap,0.0,NA,95.5,92.1,319,NA,88.2,70.4,62.2,25.1,2.2,30.16,37.12,NA,NA,pending,passed\r
+1000,Sparky,1234_5#6,76,10066330,765041080,Mapping,Sue_FMNH_PR_2081,23298589,dinomap,NA,NA,0.0,0.0,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,pending,passed\r
 ];
 is $report_output,$expected_report_output,'report gives expected output';
 

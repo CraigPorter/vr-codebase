@@ -40,6 +40,7 @@ has 'genome_covered_10x'  => ( is => 'ro', isa => 'Maybe[Num]', lazy_build => 1)
 has 'genome_covered_50x'  => ( is => 'ro', isa => 'Maybe[Num]', lazy_build => 1); # ditto
 has 'genome_covered_100x' => ( is => 'ro', isa => 'Maybe[Num]', lazy_build => 1); # ditto
 has 'depth_of_coverage'   => ( is => 'ro', isa => 'Maybe[Num]', lazy_build => 1); # mean depth of coverage
+has 'depth_of_coverage_sd'=> ( is => 'ro', isa => 'Maybe[Num]', lazy_build => 1); # mean depth of coverage sd
 has 'duplication_rate'    => ( is => 'ro', isa => 'Maybe[Num]', lazy_build => 1); # duplication rate qc
 has 'error_rate'          => ( is => 'ro', isa => 'Maybe[Num]', lazy_build => 1); # error rate qc
 has 'npg_qc'              => ( is => 'ro', isa => 'Maybe[Str]', lazy_build => 1); # npg qc
@@ -268,7 +269,6 @@ sub _build_genome_covered_100x
     return $self->_target_bases_X_perc(100);
 }
 
-# Note: Coming soon for mapping
 sub _build_depth_of_coverage
 {
     my($self) = @_;
@@ -276,12 +276,23 @@ sub _build_depth_of_coverage
     my $depth; # Mean depth of coverage
     if($self->is_qc_mapstats && $self->is_mapping_complete)
     {
-	# Coverage calculation for QC sample
-	my $genome_size        = $self->reference_size;
-	my $rmdup_bases_mapped = $self->mapstats->rmdup_bases_mapped;
-	my $qc_bases           = $self->mapstats->raw_bases;
-	my $bases              = $self->bases;
-	$depth = ( ( $rmdup_bases_mapped / $qc_bases ) * $bases ) / $genome_size if $genome_size;
+	# QC Coverage
+	$depth = $self->mapstats->mean_target_coverage;
+
+	# Coverage calculation 
+	# Used if mean_target_coverage is undefined.
+	unless( defined $depth)
+	{
+	    my $genome_size        = $self->reference_size;
+	    my $rmdup_bases_mapped = $self->mapstats->rmdup_bases_mapped;
+	    $depth = $rmdup_bases_mapped/$genome_size  if $genome_size;
+	}
+
+	# Scale from sample size to lane size
+	my $qc_bases = $self->mapstats->raw_bases;
+	my $bases    = $self->bases;
+	$depth *= $bases/$qc_bases;
+
     }
     else 
     {
@@ -292,6 +303,26 @@ sub _build_depth_of_coverage
     # Format and return
     $depth = sprintf("%.2f",$depth) if defined $depth;
     return $depth;
+}
+
+sub _build_depth_of_coverage_sd
+{
+    my($self) = @_;
+
+    my $depth_sd = $self->mapstats->target_coverage_sd;
+
+    if($self->is_qc_mapstats && $self->is_mapping_complete)
+    {
+	# QC Coverage
+	# Scale from sample size to lane size
+	my $qc_bases = $self->mapstats->raw_bases;
+	my $bases    = $self->bases;
+	$depth_sd *= $bases/$qc_bases if defined $depth_sd;
+    }
+
+    # Format and return
+    $depth_sd = sprintf("%.2f",$depth_sd) if defined $depth_sd;
+    return $depth_sd;
 }
 
 sub _build_duplication_rate
