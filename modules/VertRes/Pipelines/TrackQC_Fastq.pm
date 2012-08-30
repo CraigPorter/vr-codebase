@@ -770,8 +770,12 @@ sub run_graphs
     my $bam_file   = qq[$lane_path/$$self{'sample_dir'}/$$self{'lane'}.bam];
     my $cover_file = qq[$lane_path/$$self{'sample_dir'}/$$self{'lane'}.cover];
 
-    my $sam_util = VertRes::Utils::Sam->new(verbose => $$self{verbose});
-    my($coverage, $depth, $depth_sd) = $sam_util->coverage_depth($bam_file,$reference_size);
+#    my $sam_util = VertRes::Utils::Sam->new(verbose => $$self{verbose});
+#    my($coverage, $depth, $depth_sd) = $sam_util->coverage_depth($bam_file,$reference_size);
+
+    my $genomecover = Pathogens::Parser::GenomeCoverage->new( bamcheck => $bam_file,
+							      ref_size => $reference_size );
+    my($coverage, $depth, $depth_sd) = $genomecover->coverage_depth();
 
     # Output cover file.
     open(my $cov_fh, "> $cover_file") or $self->throw("Cannot open: $cover_file\n");
