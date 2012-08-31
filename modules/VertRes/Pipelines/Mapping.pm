@@ -1262,7 +1262,7 @@ VertRes::Pipelines::Mapping->create_graphs(qq[$$self{bamcheck}],  qq[$self->{ref
 #my \@cover = \$sam_util->coverage('$bam_file',1,2,5,10,20,50,100);
 #my(\$coverage, \$depth, \$depth_sd)  = \$sam_util->coverage_depth('$bam_file',$reference_size);
 
-my \$genomecover = Pathogens::Parser::GenomeCoverage->new( bamcheck => '$bam_file',
+my \$genomecover = Pathogens::Parser::GenomeCoverage->new( bamcheck => '$bam_file.bc',
                                                            ref_size => $reference_size );
 
 my \@cover = \$genomecover->coverage(1,2,5,10,20,50,100);

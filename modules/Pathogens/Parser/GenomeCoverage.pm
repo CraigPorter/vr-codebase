@@ -107,6 +107,11 @@ sub coverage_depth
 {
     my($self) = @_;
 
+    # DEBUG
+    #$self->throw("Bamcheck = '".$self->bamcheck."' Refsize = '".$self->ref_size."'\n");
+
+
+
 #    unless( -e $self->bamcheck ){ $self->throw("Input file not found: ".$self->bamcheck."\n"); }
     unless( defined $self->ref_size ){ $self->throw("Reference size must be set for mean coverage depth calculation.\n"); }
     unless( $self->ref_size =~ /^\d+$/ && $self->ref_size > 0 ){ $self->throw("Reference size must be non-zero integer\n"); }
