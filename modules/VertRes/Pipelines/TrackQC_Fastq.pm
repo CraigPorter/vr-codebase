@@ -767,14 +767,8 @@ sub run_graphs
     $self->SUPER::run_graphs($lane_path,$insert_size);
 
     # Get coverage, depth and sd.
-#    my $bam_file   = qq[$lane_path/$$self{'sample_dir'}/$$self{'lane'}.bam];
-#    my $cover_file = qq[$lane_path/$$self{'sample_dir'}/$$self{'lane'}.cover];
-
     my $bamcheck_file = qq[$lane_path/$$self{'sample_dir'}/$$self{'lane'}.bam.bc];
     my $cover_file    = qq[$lane_path/$$self{'sample_dir'}/$$self{'lane'}.cover];
-
-#    my $sam_util = VertRes::Utils::Sam->new(verbose => $$self{verbose});
-#    my($coverage, $depth, $depth_sd) = $sam_util->coverage_depth($bam_file,$reference_size);
 
     my $genomecover = Pathogens::Parser::GenomeCoverage->new( bamcheck => $bamcheck_file,
 							      ref_size => $reference_size );
