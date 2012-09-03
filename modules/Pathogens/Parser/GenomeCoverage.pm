@@ -36,9 +36,6 @@ sub _build__bc_coverage
 {
     my ($self) = @_;
 
-    # check bamcheck file exists
-    unless( -e $self->bamcheck ){ $self->throw("Input file not found: ".$self->bamcheck."\n"); }
-    
     # get coverage from bamcheck file
     my $bc = VertRes::Parser::bamcheck->new( file => $self->bamcheck );
     return $bc->get('coverage');
@@ -60,8 +57,7 @@ sub coverage
 {
     my ($self,@bin) = @_;
     
-#    unless( -e $self->bamcheck ){ $self->throw("Input file not found: ".$self->bamcheck."\n"); }
-    
+    unless( -e $self->bamcheck ){ $self->throw("Input file not found: ".$self->bamcheck."\n"); }    
     unless(@bin){ @bin = (1); } # Default to 1X coverage.
 
     # Sort coverage depths into ascending order.
@@ -80,7 +76,6 @@ sub coverage
     my @bc_cover = @{$self->_bc_coverage};
     for(my $x=1; $x < @bc_cover; $x++)
     {
-#       print $bc_coverage[$x][1],',',$bc_coverage[$x][2],"\n";
         for(my $i=0; $i < @bin; $i++)
         {
             if($sorted_bin[$i][1] <= $bc_cover[$x][1] ){ $coverage[$sorted_bin[$i][0]] += $bc_cover[$x][2]; }
@@ -107,12 +102,7 @@ sub coverage_depth
 {
     my($self) = @_;
 
-    # DEBUG
-    #$self->throw("Bamcheck = '".$self->bamcheck."' Refsize = '".$self->ref_size."'\n");
-
-
-
-#    unless( -e $self->bamcheck ){ $self->throw("Input file not found: ".$self->bamcheck."\n"); }
+    unless( -e $self->bamcheck ){ $self->throw("Input file not found: ".$self->bamcheck."\n"); }
     unless( defined $self->ref_size ){ $self->throw("Reference size must be set for mean coverage depth calculation.\n"); }
     unless( $self->ref_size =~ /^\d+$/ && $self->ref_size > 0 ){ $self->throw("Reference size must be non-zero integer\n"); }
 
@@ -123,7 +113,6 @@ sub coverage_depth
 
     for(my $x=1; $x < @bc_cover; $x++)
     {
-#       print $cover[$x][1],',',$cover[$x][2],"\n";
         $coverage += $bc_cover[$x][2];
         $depth_hist{$bc_cover[$x][1]} += $bc_cover[$x][2] if $bc_cover[$x][2];
     }
