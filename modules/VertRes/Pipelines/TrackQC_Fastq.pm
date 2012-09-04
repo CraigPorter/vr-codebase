@@ -771,7 +771,7 @@ sub run_graphs
     my $cover_file    = qq[$lane_path/$$self{'sample_dir'}/$$self{'lane'}.cover];
 
     my $genomecover = Pathogens::Parser::GenomeCoverage->new( bamcheck => $bamcheck_file,
-							      ref_size => $reference_size );
+                                                              ref_size => $reference_size );
     my($coverage, $depth, $depth_sd) = $genomecover->coverage_depth();
 
     # Output cover file.
